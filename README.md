@@ -1,122 +1,104 @@
-# Amp Neovim Plugin
+# Amp Vim Plugin
 
-This plugin allows the [Amp CLI](https://ampcode.com/manual#cli) to see the file you currently have open in your Neovim instance, along with your cursor position and your text selection.
+This plugin allows the [Amp CLI](https://ampcode.com/manual#cli) to see the file you currently have open in your Vim instance, along with your cursor position and your text selection.
 
 https://github.com/user-attachments/assets/3a5f136f-7b0a-445f-90be-b4e5b28a7e82
 
-When installed, this plugin allows Neovim to:
+When installed, this plugin allows Vim to:
 
 - Notify Amp about currently open file
 - Notify Amp about selected code
-- Notify Amp about Neovim diagnostics
 - Send messages to the Amp agent (see [Sending Messages to Amp](#sending-messages-to-amp))
-- Read and edit files through the Neovim buffers
+- Read and edit files through the Vim buffers
 
 ## Installation
 
-Install the plugin by adding this code to your lazy.vim config:
+Install the plugin using your preferred Vim plugin manager:
 
-```lua
-  -- Amp Plugin
-{
-  "sourcegraph/amp.nvim",
-  branch = "main", 
-  lazy = false,
-  opts = { auto_start = true, log_level = "info" },
-}
+### vim-plug
+```vim
+Plug 'sourcegraph/amp.nvim'
 ```
 
-Once installed, run `amp --ide`.
+### Vundle
+```vim
+Plugin 'sourcegraph/amp.nvim'
+```
 
-### Healthcheck
-> Check the health of the plugin by running `:checkhealth amp` or to run all healthchecks run `:checkhealth`
+### Pathogen
+```bash
+cd ~/.vim/bundle
+git clone https://github.com/sourcegraph/amp.nvim.git
+```
+
+### Requirements
+- Vim 8.0+ with Python 3 support (`:echo has('python3')` should return `1`)
+- Python 3.7+
+- Python packages: `pip install -r python3/requirements.txt`
+
+Once installed, start server in a running vim instance using `:AmpStart`. Run `amp --ide` to connect.
+
+## Commands
+
+- `:AmpStart` - Start the WebSocket server
+- `:AmpStop` - Stop the WebSocket server
+- `:AmpStatus` - Show server status and connection state
+- `:AmpTest` - Test IDE protocol notifications
 
 ## Sending Messages to Amp
 
-The plugin provides a simple `send_message` function that you can use to create your own commands and workflows. Here are two example commands you can add to your configuration, one to send a quick message, and one to send the contents of a buffer (useful for drafting longer messages):
+The plugin provides a `amp#message#send()` function that you can use to create your own commands and workflows. Here are example commands you can add to your `.vimrc`:
 
 ### Example Commands
 
-```lua
--- Send a quick message to the agent
-vim.api.nvim_create_user_command("AmpSend", function(opts)
-  local message = opts.args
-  if message == "" then
-    print("Please provide a message to send")
+```vim
+" Send a quick message to the agent
+command! -nargs=* AmpSend call amp#message#send_message(<q-args>)
+
+" Send entire buffer contents
+command! -nargs=0 AmpSendBuffer call amp#message#send_message(join(getline(1, '$'), "\n"))
+
+" Add selected text directly to prompt (visual mode)
+command! -range AmpPromptSelection call amp#message#send_to_prompt(join(getline(<line1>, <line2>), "\n"))
+
+" Add file+selection reference to prompt
+command! -range AmpPromptRef call s:SendFileRef(<line1>, <line2>)
+
+function! s:SendFileRef(line1, line2)
+  let l:bufname = expand('%:p')
+  if l:bufname == ''
+    echo 'Current buffer has no filename'
     return
-  end
-
-  local amp_message = require("amp.message")
-  amp_message.send_message(message)
-end, {
-  nargs = "*",
-  desc = "Send a message to Amp",
-})
-
--- Send entire buffer contents
-vim.api.nvim_create_user_command("AmpSendBuffer", function(opts)
-  local buf = vim.api.nvim_get_current_buf()
-  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-  local content = table.concat(lines, "\n")
-
-  local amp_message = require("amp.message")
-  amp_message.send_message(content)
-end, {
-  nargs = "?",
-  desc = "Send current buffer contents to Amp",
-})
-
--- Add selected text directly to prompt
-vim.api.nvim_create_user_command("AmpPromptSelection", function(opts)
-  local lines = vim.api.nvim_buf_get_lines(0, opts.line1 - 1, opts.line2, false)
-  local text = table.concat(lines, "\n")
-
-  local amp_message = require("amp.message")
-  amp_message.send_to_prompt(text)
-end, {
-  range = true,
-  desc = "Add selected text to Amp prompt",
-})
-
--- Add file+selection reference to prompt
-vim.api.nvim_create_user_command("AmpPromptRef", function(opts)
-  local bufname = vim.api.nvim_buf_get_name(0)
-  if bufname == "" then
-    print("Current buffer has no filename")
-    return
-  end
-
-  local relative_path = vim.fn.fnamemodify(bufname, ":.")
-  local ref = "@" .. relative_path
-  if opts.line1 ~= opts.line2 then
-    ref = ref .. "#L" .. opts.line1 .. "-" .. opts.line2
-  elseif opts.line1 > 1 then
-    ref = ref .. "#L" .. opts.line1
-  end
-
-  local amp_message = require("amp.message")
-  amp_message.send_to_prompt(ref)
-end, {
-  range = true,
-  desc = "Add file reference (with selection) to Amp prompt",
-})
+  endif
+  
+  let l:ref = '@' . fnamemodify(l:bufname, ':.')
+  if a:line1 != a:line2
+    let l:ref .= '#L' . a:line1 . '-' . a:line2
+  elseif a:line1 > 1
+    let l:ref .= '#L' . a:line1
+  endif
+  
+  call amp#message#send_to_prompt(l:ref)
+endfunction
 ```
 
 ## Feature Ideas
 
 Do you have a feature request or an idea? Submit an issue in this repo!
 
-- Better reconnect: Nvim users are much more likely to reopen their IDE than JetBrains users. Because of that, we should check if we can automatically reconnect to an IDE in the same path that we had the last connection with.
+- Better reconnect: Vim users are much more likely to reopen their editor than JetBrains users. Because of that, we should check if we can automatically reconnect to an IDE in the same path that we had the last connection with.
 - When I ask Amp to show me a particular section of code, it would be nice if Amp could open that file and select the code for me.
-- Should we keep the code selection when moving between tab? Currently you can't switch to a split terminal if you don't want to loose the selection, i.e. making the built in terminal unfeasible for code selection.
+- Should we keep the code selection when moving between splits? Currently you can't switch to a split terminal if you don't want to lose the selection, making the built in terminal unfeasible for code selection.
 
 ## Development
 
-Uses `stylua` for general formatting, and `lua-language-server` for linting.
+This is a hybrid Vim/Python plugin:
+- **VimScript**: Provides Vim integration and UI commands
+- **Python**: Runs WebSocket server and handles JSON-RPC communication
 
+For Python dependencies:
 ```bash
-stylua .
-nvim --headless --clean -c ':!lua-language-server --check .' -c 'qa'
+pip install -r python3/requirements.txt
 ```
 
 ## Cross-Platform Support
